@@ -1835,7 +1835,14 @@ function loadState() {
     def.quizMode = typeof saved.quizMode === 'boolean' ? saved.quizMode : true;
     def.showInn = typeof saved.showInn === 'boolean' ? saved.showInn : true;
     def.hideExcl = typeof saved.hideExcl === 'boolean' ? saved.hideExcl : false;
-    def.examDate = typeof saved.examDate === 'string' ? saved.examDate : '';
+    // Sanitize stored exam date — drop if year is obviously wrong (covers stale typo-years)
+    if (typeof saved.examDate === 'string' && saved.examDate) {
+      const year = Number(saved.examDate.slice(0, 4));
+      const currentYear = new Date().getFullYear();
+      def.examDate = (year >= currentYear && year <= currentYear + 5) ? saved.examDate : '';
+    } else {
+      def.examDate = '';
+    }
     DATA.forEach(c => {
       let x = 0;
       c.s.forEach(s => s.m.forEach(() => {
@@ -2435,10 +2442,14 @@ function renderIdleHTML() {
   const daysExam = daysUntilExam();
   const queue = buildReviewQueue();
 
+  // Date range for the exam picker — landing it in the current year and preventing typo-years
+  const _todayISO = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const _maxISO = new Date(Date.now() + 2 * 365 * DAY_MS - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
   let examHTML = `
     <div class="rp-exam-block">
       <div class="rp-exam-label">Next exam</div>
-      <input type="date" id="exam-date-input" value="${state.examDate || ''}" aria-label="Exam date">
+      <input type="date" id="exam-date-input" value="${state.examDate || ''}" min="${_todayISO}" max="${_maxISO}" aria-label="Exam date">
       ${daysExam !== null && daysExam >= 0
         ? `<div class="rp-exam-countdown"><strong>${daysExam}</strong> day${daysExam === 1 ? '' : 's'} away</div>`
         : daysExam !== null && daysExam < 0
@@ -2491,7 +2502,18 @@ function wireIdleHandlers() {
   const dateInput = document.getElementById('exam-date-input');
   if (dateInput) {
     dateInput.addEventListener('change', function() {
-      state.examDate = this.value || '';
+      const v = this.value || '';
+      // Reject obviously invalid years (typos like 0002, 0026, etc.)
+      if (v) {
+        const year = Number(v.slice(0, 4));
+        const currentYear = new Date().getFullYear();
+        if (year < currentYear || year > currentYear + 5) {
+          this.value = state.examDate || '';
+          announce('Please enter a valid exam date');
+          return;
+        }
+      }
+      state.examDate = v;
       renderPanel();
       saveState();
     });
